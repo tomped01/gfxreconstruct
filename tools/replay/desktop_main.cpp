@@ -38,6 +38,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <utility>
 
 #if defined(WIN32)
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
@@ -213,9 +214,10 @@ int main(int argc, const char** argv)
             {
                 gfxrecon::graphics::FpsInfo                    fps_info;
                 gfxrecon::decode::VulkanTrackedObjectInfoTable tracked_object_info_table;
-                gfxrecon::decode::VulkanReplayConsumer         replay_consumer(
-                    window_factory.get(), GetReplayOptions(arg_parser, filename, &tracked_object_info_table));
-                gfxrecon::decode::VulkanDecoder decoder;
+                gfxrecon::decode::ReplayOptions                replay_options =
+                    GetReplayOptions(arg_parser, filename, &tracked_object_info_table);
+                gfxrecon::decode::VulkanReplayConsumer replay_consumer(window_factory.get(), replay_options);
+                gfxrecon::decode::VulkanDecoder        decoder;
 
                 replay_consumer.SetFatalErrorHandler([](const char* message) { throw std::runtime_error(message); });
                 replay_consumer.SetFpsInfo(&fps_info);
@@ -224,12 +226,17 @@ int main(int argc, const char** argv)
                 file_processor.AddDecoder(&decoder);
                 application->SetPauseFrame(GetPauseFrame(arg_parser));
 
+                std::pair<uint32_t, uint32_t> measurement_frame_range = GetMeasurementFrameRange(arg_parser);
+
                 // Warn if the capture layer is active.
                 CheckActiveLayers(gfxrecon::util::platform::GetEnv(kLayerEnvVar));
 
                 fps_info.Begin();
 
-                application->Run();
+                application->Run(measurement_frame_range.first,
+                                 measurement_frame_range.second,
+                                 replay_options.quit_after_measurement_frame_range,
+                                 replay_options.flush_measurement_frame_range);
 
                 if ((file_processor.GetCurrentFrameNumber() > 0) &&
                     (file_processor.GetErrorState() == gfxrecon::decode::FileProcessor::kErrorNone))

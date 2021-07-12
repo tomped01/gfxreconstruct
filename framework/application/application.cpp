@@ -54,9 +54,14 @@ void Application::SetFileProcessor(decode::FileProcessor* file_processor)
     file_processor_ = file_processor;
 }
 
-void Application::Run()
+void Application::Run(uint32_t measurement_start_frame,
+                      uint32_t measurement_end_frame,
+                      bool     quit_after_range,
+                      bool     flush_measurement_range)
 {
-    running_ = true;
+    running_               = true;
+    measurement_start_time = 0;
+    measurement_end_time   = 0;
 
     while (running_)
     {
@@ -65,9 +70,17 @@ void Application::Run()
         // Only process the next frame if a quit event was not processed or not paused.
         if (running_ && !paused_)
         {
-            PlaySingleFrame();
+            HandleMeasurementRange(
+                measurement_start_frame, measurement_end_frame, quit_after_range, flush_measurement_range);
+
+            if (running_)
+            {
+                PlaySingleFrame();
+            }
         }
     }
+
+    WriteMeasurementRangeFpsToConsole(measurement_start_frame, measurement_end_frame);
 }
 
 void Application::SetPaused(bool paused)
@@ -148,6 +161,93 @@ bool Application::UnregisterWindow(decode::Window* window)
     windows_.erase(pos);
 
     return true;
+}
+
+void Application::HandleMeasurementRange(uint32_t measurement_start_frame,
+                                         uint32_t measurement_end_frame,
+                                         bool     quit_after_range,
+                                         bool     flush_measurement_range)
+{
+    if (file_processor_->GetCurrentFrameNumber() == measurement_start_frame)
+    {
+        if (flush_measurement_range)
+        {
+            file_processor_->WaitDecodersIdle();
+        }
+
+        measurement_start_time = gfxrecon::util::datetime::GetTimestamp();
+    }
+    else if (file_processor_->GetCurrentFrameNumber() == measurement_end_frame)
+    {
+        // End before replay -> non inclusive range
+        if (flush_measurement_range)
+        {
+            file_processor_->WaitDecodersIdle();
+        }
+
+        measurement_end_time = gfxrecon::util::datetime::GetTimestamp();
+
+        if (quit_after_range)
+        {
+            running_ = false;
+        }
+    }
+}
+
+void Application::WriteMeasurementRangeFpsToConsole(uint32_t measurement_start_frame, uint32_t measurement_end_frame)
+{
+    if (file_processor_->GetErrorState() != gfxrecon::decode::FileProcessor::kErrorNone)
+    {
+        GFXRECON_LOG_ERROR("A failure has occurred during replay, cannot calculate measurement range FPS.");
+        return;
+    }
+
+    if (running_ && (file_processor_->GetCurrentFrameNumber() < measurement_end_frame))
+    {
+        GFXRECON_LOG_WARNING("Application is still running and has not yet reached the measurement "
+                             "range end frame. Cannot calculate measurement range FPS.")
+        return;
+    }
+
+    if (measurement_start_frame >= measurement_end_frame)
+    {
+        GFXRECON_LOG_WARNING("Measurement start frame (%u) is greater than or equal to the end frame (%u). "
+                             "Cannot calculate measurement range FPS.",
+                             measurement_start_frame,
+                             measurement_end_frame);
+
+        return;
+    }
+
+    if (file_processor_->GetCurrentFrameNumber() < measurement_start_frame)
+    {
+        GFXRECON_LOG_WARNING("Measurement range start frame (%u) is greater than the last replayed frame (%u). "
+                             "Measurements were never started, cannot calculate measurement range FPS.",
+                             measurement_start_frame,
+                             file_processor_->GetCurrentFrameNumber());
+        return;
+    }
+
+    // Here we clip the range for convenience.
+    if (file_processor_->GetCurrentFrameNumber() < measurement_end_frame)
+    {
+        file_processor_->WaitDecodersIdle();
+        measurement_end_time  = gfxrecon::util::datetime::GetTimestamp();
+        measurement_end_frame = file_processor_->GetCurrentFrameNumber();
+    }
+
+    double diff_time_sec = gfxrecon::util::datetime::ConvertTimestampToSeconds(
+        gfxrecon::util::datetime::DiffTimestamps(measurement_start_time, measurement_end_time));
+
+    uint32_t total_frames = measurement_end_frame - measurement_start_frame;
+    double   fps          = static_cast<double>(total_frames) / diff_time_sec;
+    GFXRECON_WRITE_CONSOLE("Measurement range FPS: %f fps, %f seconds, %u frame%s, 1 loop, framerange [%u-%u)",
+                           fps,
+                           diff_time_sec,
+                           total_frames,
+                           total_frames > 1 ? "s" : "",
+                           measurement_start_frame,
+                           measurement_end_frame);
 }
 
 GFXRECON_END_NAMESPACE(application)

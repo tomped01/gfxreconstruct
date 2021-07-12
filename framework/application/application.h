@@ -27,9 +27,11 @@
 #include "decode/file_processor.h"
 #include "decode/window.h"
 #include "util/defines.h"
+#include "util/date_time.h"
 
 #include <string>
 #include <vector>
+#include <limits>
 
 GFXRECON_BEGIN_NAMESPACE(gfxrecon)
 GFXRECON_BEGIN_NAMESPACE(application)
@@ -47,7 +49,10 @@ class Application
 
     bool IsRunning() const { return running_; }
 
-    void Run();
+    void Run(uint32_t measurement_start_frame = 0,
+             uint32_t measurement_end_frame   = std::numeric_limits<uint32_t>::max(),
+             bool     quit_after_range        = false,
+             bool     flush_measurement_range = false);
 
     bool GetPaused() const { return paused_; }
 
@@ -68,18 +73,27 @@ class Application
 
     void SetFileProcessor(decode::FileProcessor* file_processor);
 
+    void HandleMeasurementRange(uint32_t measurement_start_frame,
+                                uint32_t measurement_end_frame,
+                                bool     quit_after_range,
+                                bool     flush_measurement_range);
+
+    void WriteMeasurementRangeFpsToConsole(uint32_t measurement_start_frame, uint32_t measurement_end_frame);
+
   private:
     // clang-format off
-    std::vector<decode::Window*> windows_;          ///< List of windows that have been registered with the application.
-    decode::FileProcessor*       file_processor_;   ///< The FileProcessor object responsible for decoding and processing
-                                                    ///< capture file data.
-    bool                         running_;          ///< Indicates that the application is actively processing system
-                                                    ///< events for playback.
-    bool                         paused_;           ///< Indicates that the playback has been paused.  When paused the
-                                                    ///< application will stop rendering, but will continue processing
-                                                    ///< system events.
-    std::string                  name_;             ///< Application name to display in window title bar.
-    uint32_t                     pause_frame_;      ///< The number for a frame that replay should pause after.
+    std::vector<decode::Window*> windows_;                  ///< List of windows that have been registered with the application.
+    decode::FileProcessor*       file_processor_;           ///< The FileProcessor object responsible for decoding and processing
+                                                            ///< capture file data.
+    bool                         running_;                  ///< Indicates that the application is actively processing system
+                                                            ///< events for playback.
+    bool                         paused_;                   ///< Indicates that the playback has been paused.  When paused the
+                                                            ///< application will stop rendering, but will continue processing
+                                                            ///< system events.
+    std::string                  name_;                     ///< Application name to display in window title bar.
+    uint32_t                     pause_frame_;              ///< The number for a frame that replay should pause after.
+    int64_t                      measurement_start_time;    ///< The time when the measurement range started
+    int64_t                      measurement_end_time;      ///< The time when the measurement range ended
     // clang-format on
 };
 
